@@ -138,7 +138,14 @@ class TMDbClient:
 
     def get_tv_episode_details(self, tmdb_id: int, season_number: int, episode_number: int,
                                episode_title: Optional[str] = "") -> Dict[str, Any]:
-        """Get detailed information for a specific TV episode."""
+        """Get detailed information for a specific TV episode.
+
+        Returns episode data with season_number and episode_number fields that reflect
+        the actual episode found (useful when searching by title across seasons).
+        """
+        original_season = season_number
+        original_episode = episode_number
+
         if episode_title != "":
             logger.debug(f"Getting episode details for show ID {tmdb_id} with title '{episode_title}'")
             # Search for episode by title within the season
@@ -151,7 +158,7 @@ class TMDbClient:
                     break
             else:
                 logger.error(
-                    f"Episode titled '{episode_title}' not found in season {season_number} of show ID {tmdb_id}, searching all seasons...")
+                    f"Episode titled '{episode_title}' not found in season {original_season} of show ID {tmdb_id}, searching all seasons...")
                 # If not found in the specified season, search all seasons
                 tv_data = self.get_tv_show_details(tmdb_id)
                 for season in tv_data.get("seasons", []):
@@ -168,7 +175,13 @@ class TMDbClient:
                         continue
                     break
         logger.debug(f"Getting episode details for show ID {tmdb_id}, S{season_number}E{episode_number}")
-        return self._make_request(f"tv/{tmdb_id}/season/{season_number}/episode/{episode_number}")
+        episode_data = self._make_request(f"tv/{tmdb_id}/season/{season_number}/episode/{episode_number}")
+
+        # Include the corrected season and episode numbers in the response
+        episode_data["season_number"] = season_number
+        episode_data["episode_number"] = episode_number
+
+        return episode_data
 
     def find_best_movie_match(self, title: str, year: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """Find the best matching movie for a given title and year."""

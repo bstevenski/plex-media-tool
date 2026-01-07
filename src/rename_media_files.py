@@ -223,7 +223,8 @@ class MediaRenamer:
             if media_info["content_type"] == CONTENT_TYPE_MOVIES:
                 result = self.tmdb_client.find_best_movie_match(media_info["title"], media_info["year"])
             else:  # TV Show
-                result = self.tmdb_client.find_best_tv_match(media_info["title"], media_info["year"], self.use_episode_titles)
+                result = self.tmdb_client.find_best_tv_match(media_info["title"], media_info["year"],
+                                                             self.use_episode_titles)
 
             if result:
                 # Use appropriate field name for movies vs TV shows
@@ -239,7 +240,10 @@ class MediaRenamer:
             return None
 
     def _fetch_episode_title_from_tmdb(self, media_info: dict, tmdb_data: dict) -> None:
-        """Fetch the actual episode title from TMDb and update media_info."""
+        """Fetch the actual episode title from TMDb and update media_info.
+
+        Also updates season and episode numbers if they were corrected during the search.
+        """
         try:
             season = media_info.get("season")
             episode = media_info.get("episode")
@@ -263,6 +267,21 @@ class MediaRenamer:
                 new_title = episode_data["name"]
                 media_info["episode_title"] = new_title
                 self.logger.info(f"Updated episode title from TMDb: '{original_title}' -> '{new_title}'")
+
+                # Update season and episode numbers if they were corrected during the search
+                if "season_number" in episode_data:
+                    original_season = media_info.get("season")
+                    new_season = episode_data["season_number"]
+                    if new_season != original_season:
+                        media_info["season"] = new_season
+                        self.logger.info(f"Updated season from TMDb: {original_season} -> {new_season}")
+
+                if "episode_number" in episode_data:
+                    original_episode = media_info.get("episode")
+                    new_episode = episode_data["episode_number"]
+                    if new_episode != original_episode:
+                        media_info["episode"] = new_episode
+                        self.logger.info(f"Updated episode from TMDb: {original_episode} -> {new_episode}")
             else:
                 self.logger.debug(f"Could not fetch episode title for S{season}E{episode} from TMDb")
 
