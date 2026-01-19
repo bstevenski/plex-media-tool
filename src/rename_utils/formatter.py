@@ -84,13 +84,15 @@ def _format_episode_filename(
         series_title: str,
         season: int,
         episode: int,
-        episode_title: str,
+        episode_title: Optional[str],
         extension: str
 ) -> str:
     """
     Format a TV show episode filename according to Plex conventions.
     Format: "Series Title - SXXEXX - Episode Title.ext"
     Example: "It's Always Sunny in Philadelphia - S01E06 - The Gang Finds a Dead Guy.mkv"
+
+    If episode_title is None or empty, uses "Episode XX" as fallback.
     """
     # Clean and sanitize titles to remove invalid filesystem characters
     clean_title = " ".join(series_title.split())
@@ -98,8 +100,15 @@ def _format_episode_filename(
 
     season_str = f"{season:02d}"
     episode_str = f"{episode:02d}"
-    clean_episode_title = " ".join(episode_title.split())
-    clean_episode_title = _sanitize_filename(clean_episode_title)
+
+    # Handle missing episode title with fallback
+    if not episode_title or not episode_title.strip():
+        clean_episode_title = f"Episode {episode_str}"
+        logger.warning(f"Missing episode title, using fallback: {clean_episode_title}")
+    else:
+        clean_episode_title = " ".join(episode_title.split())
+        clean_episode_title = _sanitize_filename(clean_episode_title)
+
     filename = f"{clean_title} - S{season_str}E{episode_str} - {clean_episode_title}{extension}"
 
     logger.debug(f"Formatted TV filename: {filename}")
@@ -184,7 +193,7 @@ def construct_tv_show_path(
         tmdb_id: int,
         season: int,
         episode: int,
-        episode_title: str,
+        episode_title: Optional[str],
         extension: str,
         use_episode_title_only: bool = False,
 ) -> Path:

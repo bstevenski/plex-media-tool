@@ -280,16 +280,21 @@ class TMDbClient:
         )
         return result
 
-    def get_episode_info(self, tmdb_id: int, season_number: int, episode_number: int, episode_title: Optional[str],
+    def get_episode_info(self, tmdb_id: int, season_number: int, episode_number: int, episode_title: Optional[str] = None,
                          use_episode_title: bool = False) -> Optional[Dict[str, Any]]:
         """Get episode information, returning None if not found."""
         try:
-            if use_episode_title:
+            if use_episode_title and episode_title:
                 return self.get_tv_episode_details(tmdb_id, season_number, episode_number, episode_title)
             else:
                 return self.get_tv_episode_details(tmdb_id, season_number, episode_number)
         except TMDbAPIError as e:
-            if "404" in str(e):
-                logger.debug(f"Episode S{season_number}E{episode_number} not found for show ID {tmdb_id}")
+            error_str = str(e).lower()
+            if "404" in error_str or "not found" in error_str:
+                logger.warning(f"Episode S{season_number}E{episode_number} not found for show ID {tmdb_id} in TMDb")
                 return None
+            logger.error(f"TMDb API error fetching episode S{season_number}E{episode_number}: {e}")
             raise
+        except Exception as e:
+            logger.error(f"Unexpected error fetching episode info: {e}")
+            return None

@@ -68,12 +68,10 @@ class PlexLogger:
 
     def __init__(
             self,
-            name: str = "plexifier",
+            name: str = "plex-media-tool",
             log_level: str = "INFO",
             log_dir: Optional[Path] = None,
             enable_console: bool = True,
-            max_file_size: int = 10 * 1024 * 1024,  # 10MB
-            backup_count: int = 5,
     ):
         """
         Initialize the logger.
@@ -83,8 +81,9 @@ class PlexLogger:
             log_level: Log level (DEBUG, INFO, WARN, ERROR)
             log_dir: Directory for log files, default is ./.logs
             enable_console: Whether to enable console output
-            max_file_size: Maximum log file size in bytes
-            backup_count: Number of backup files to keep
+
+        Note:
+            Each run creates a new timestamped log file (e.g., plex-media-tool_20260119_005448.log)
         """
         self.logger = logging.getLogger(name)
         self.logger.setLevel(getattr(logging, log_level.upper()))
@@ -99,15 +98,15 @@ class PlexLogger:
             console_handler.setFormatter(console_formatter)
             self.logger.addHandler(console_handler)
 
-        # Set up file handler
+        # Set up file handler with timestamped filename
         log_dir = log_dir or Path.cwd() / ".logs"
         log_dir.mkdir(parents=True, exist_ok=True)
-        log_file = log_dir / f"{name}.log"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_file = log_dir / f"{name}_{timestamp}.log"
 
-        file_handler = logging.handlers.RotatingFileHandler(
+        file_handler = logging.FileHandler(
             log_file,
-            maxBytes=max_file_size,
-            backupCount=backup_count,
+            mode="w",  # Write mode - creates new file each time
             encoding="utf-8",
         )
         file_formatter = JSONFormatter()

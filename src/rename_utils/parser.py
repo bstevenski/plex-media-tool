@@ -132,25 +132,55 @@ def _extract_episode_title_from_filename(stem: str) -> Optional[str]:
         "Intervention - s08e11 - Marquel" -> "Marquel"
         "Ghosts - S01E01 - Pilot" -> "Pilot"
         "The Office - S03E04 - The Coup" -> "The Coup"
+        "Shameless (US) (2011) - S11E10 - DNR (1080p AMZN WEB-DL x265 afm72)" -> "DNR"
     Returns None if no obvious title segment exists.
     """
-    s = _normalize_text(stem)
-
-    # Try multiple patterns for episode titles
-    patterns = [
+    # Try patterns on original string first (before normalization removes dashes)
+    patterns_original = [
         # Standard: Show - SXXEYY - Title
         r"[Ss]\d{1,2}[Ee]\d{1,2}\s*[-_–—]\s*(.+)$",
+        # Date-based: Show YYYY-MM-DD - Title
+        r".+\s*\d{4}[-_.]\d{1,2}[-_.]\d{1,2}\s*[-_–—]\s*(.+)$",
+    ]
+
+    for pattern in patterns_original:
+        m = re.search(pattern, stem)
+        if m:
+            title_candidate = m.group(1).strip(" -_")
+            # Remove parenthetical quality info (including content inside)
+            title_candidate = re.sub(r"\s*\([^)]*\)", "", title_candidate).strip()
+            # Remove bracketed info
+            title_candidate = re.sub(r"\s*\[[^]]*]", "", title_candidate).strip()
+            # Remove quality/format tags from anywhere in the string
+            title_candidate = QUALITY_FORMATS_REGEX.sub("", title_candidate).strip()
+            # Remove common quality patterns that might have been missed
+            title_candidate = re.sub(r"\b(1080p|720p|480p|2160p|4k|AMZN|WEB-DL|WEB|BluRay|x264|x265|h\.?264|h\.?265)\b",
+                                     "", title_candidate, flags=re.IGNORECASE).strip()
+            # Clean common prefixes/suffixes
+            title_candidate = re.sub(r"^(Part|Pt)\s*\d+", "", title_candidate).strip()
+            # Clean up excessive whitespace
+            title_candidate = re.sub(r"\s+", " ", title_candidate).strip()
+            if (
+                    title_candidate
+                    and len(title_candidate) > 0
+                    and not SEASON_EPISODE_REGEX.search(title_candidate)
+                    and not QUALITY_FORMATS_REGEX.search(title_candidate)
+            ):
+                return _sanitize_filename(title_candidate)
+
+    # Now try normalized text for other patterns
+    s = _normalize_text(stem)
+
+    patterns_normalized = [
         # Show SXXEYY Title (no dash)
         r"[Ss]\d{1,2}[Ee]\d{1,2}\s+(.+)$",
         # Title - Show SXXEYY (reversed)
         r"(.+)\s*[-_–—]\s*[Ss]\d{1,2}[Ee]\d{1,2}$",
-        # Date-based: Show YYYY-MM-DD - Title
-        r".+\s*(\d{4})[-_.]\s*(\d{1,2})[-_.]\s*(\d{1,2})\s*[-_–—]\s*(.+)$",
         # Simple format: Title SXXEYY
         r"(.+)\s*[Ss]\d{1,2}[Ee]\d{1,2}$",
     ]
 
-    for pattern in patterns:
+    for pattern in patterns_normalized:
         m = re.search(pattern, s)
         if m:
             title_candidate = m.group(1).strip(" -_")
@@ -203,37 +233,61 @@ def parse_media_file(filepath: Path) -> dict:
         # Walk up the directory tree to find show folder (not season/episode folder)
         current = current_path.parent
         while current and current.name != current.root:
-            # Check if current directory looks like a season/episode folder
+            # Check if current directory looks like a season/episode folder - skip these
             if (
-                    SEASON_EPISODE_REGEX.search(current.name)
-                    or QUALITY_FORMATS_REGEX.search(current.name)
-                    or re.search(r"\[.*?]", current.name)
-                    or re.search(r"\.(ELiTE|NTb|EZTV)", current.name)
+                    current.name.lower().startswith("season ")  # Season folders like "Season 01"
+                    or current.name.lower() == "specials"  # Specials folder (same as Season 00)
+                    or re.match(r"^season\s*\d+$", current.name, re.IGNORECASE)  # "Season01", "season 1"
+                    or SEASON_EPISODE_REGEX.search(current.name)  # SXXEXX patterns
+                    or QUALITY_FORMATS_REGEX.search(current.name)  # Quality tags
+                    or re.search(r"\[.*?]", current.name)  # Brackets
+                    or re.search(r"\.(ELiTE|NTb|EZTV)", current.name)  # Release groups
             ):
                 # Skip this, go up one level
                 current = current.parent
                 continue
 
             # Check if this might be the show folder
-            # Good indicators: contains "TV Shows" or typical show naming
+            # Good indicators: parent is "TV Shows" or it doesn't look like a season/quality folder
             if (
                     "TV Shows" in str(current.parent)
-                    or not SEASON_EPISODE_REGEX.search(current.name)
+                    or (
+                    not SEASON_EPISODE_REGEX.search(current.name)
                     and not QUALITY_FORMATS_REGEX.search(current.name)
                     and not re.search(r"\[.*?]", current.name)
                     and not re.search(r"\.(ELiTE|NTb|EZTV)", current.name)
                     and not current.name.lower().startswith("season ")
+            )
             ):
                 show_dir = current.name
                 break
 
             current = current.parent
 
-        # Fallback to parent directory name if show folder not found
+        # Fallback: walk up to find first non-season, non-specials directory
         if not show_dir:
-            show_dir = filepath.parent.name
+            current = current_path.parent
+            while current and current.name != current.root:
+                if (
+                        not current.name.lower().startswith("season ")
+                        and current.name.lower() != "specials"
+                        and not re.match(r"^season\s*\d+$", current.name, re.IGNORECASE)
+                ):
+                    show_dir = current.name
+                    break
+                current = current.parent
 
-        # Clean up show directory name (remove things like "(US)" etc.)
+            # Last resort fallback
+            if not show_dir:
+                show_dir = filepath.parent.name
+
+        # Extract year from show directory if present (e.g., "Shameless (2011)")
+        year_from_dir = None
+        year_match = re.search(r"\((\d{4})\)", show_dir)
+        if year_match:
+            year_from_dir = int(year_match.group(1))
+
+        # Clean up show directory name (remove things like "(US)" and year in parens)
         show_title = re.sub(r"\s*\([^)]*\)", "", show_dir).strip()
         # Also clean up brackets and other patterns
         show_title = re.sub(r"\[.*?]", "", show_title).strip()
@@ -263,10 +317,10 @@ def parse_media_file(filepath: Path) -> dict:
         )
 
         # Use show directory title unless it's clearly a filename pattern or generic
-        if show_dir_is_filename or show_title.lower() in ["tv shows", "season", "episodes"]:
+        if show_dir_is_filename or show_title.lower() in ["tv shows", "season", "episodes", "specials"]:
             title, year = _guess_title_and_year_from_stem(show_dir)  # Treat as potential filename
         else:
-            title, year = show_title, None  # Use directory name as title
+            title, year = show_title, year_from_dir  # Use directory name and extracted year
 
         episode_title = _extract_episode_title_from_filename(stem)
         date_str, date_year = _parse_date_in_filename(filename)

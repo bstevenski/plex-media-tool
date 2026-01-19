@@ -243,6 +243,7 @@ class MediaRenamer:
         """Fetch the actual episode title from TMDb and update media_info.
 
         Also updates season and episode numbers if they were corrected during the search.
+        If TMDb lookup fails, falls back to using S##E## format as the title.
         """
         try:
             season = media_info.get("season")
@@ -251,6 +252,9 @@ class MediaRenamer:
 
             if not all([season, episode, tmdb_id]):
                 self.logger.debug("Missing season/episode/tmdb_id, skipping TMDb episode title fetch")
+                # Ensure we have a fallback episode title
+                if not media_info.get("episode_title"):
+                    media_info["episode_title"] = f"Episode {episode:02d}"
                 return
 
             # Fetch the episode details from TMDb
@@ -283,10 +287,21 @@ class MediaRenamer:
                         media_info["episode"] = new_episode
                         self.logger.info(f"Updated episode from TMDb: {original_episode} -> {new_episode}")
             else:
-                self.logger.debug(f"Could not fetch episode title for S{season}E{episode} from TMDb")
+                # If TMDb lookup failed, use a fallback episode title
+                if not media_info.get("episode_title"):
+                    media_info["episode_title"] = f"Episode {episode:02d}"
+                    self.logger.warning(f"Could not fetch episode title for S{season}E{episode} from TMDb, using fallback: '{media_info['episode_title']}'")
+                else:
+                    self.logger.debug(f"Could not fetch episode title for S{season}E{episode} from TMDb, keeping parsed title: '{media_info.get('episode_title')}'")
 
         except Exception as e:
-            self.logger.debug(f"Failed to fetch episode title from TMDb: {e}")
+            self.logger.warning(f"Failed to fetch episode title from TMDb: {e}")
+            # Ensure we have a fallback episode title
+            if not media_info.get("episode_title"):
+                season = media_info.get("season", 0)
+                episode = media_info.get("episode", 0)
+                media_info["episode_title"] = f"Episode {episode:02d}"
+                self.logger.warning(f"Using fallback episode title: '{media_info['episode_title']}'")
             # Don't fail the entire operation if we can't fetch the episode title
 
     @staticmethod
